@@ -1,0 +1,15 @@
+# --- core (required) ---
+websockets>=12.0
+sounddevice>=0.4.6
+keyboard>=0.13.5            # global hold-to-talk hotkey (SetWindowsHookEx)
+pywinauto>=0.6.8           # Windows UI Automation (robust control invoking/typing)
+uiautomation>=2.0.18       # UIA tree walking / text extraction (read_screen, Claude)
+pygetwindow>=0.0.9         # window find + focus + geometry (replaces Quartz)
+pyautogui>=0.9.54          # mouse clicks (focus the Premiere Program Monitor)
+pydirectinput>=1.0.4       # scan-code key presses (Premiere / games accept these)
+psutil>=5.9               # process lookup helpers
+
+# --- optional (features degrade gracefully if missing) ---
+winsdk>=1.0.0b10           # Windows SMTC: play/pause + now-playing for Spotify
+spotipy>=2.23             # Spotify Web API: play an EXACT track (needs Premium + OAuth)
+playwright>=1.40          # web "click the first result" (needs a CDP browser on :9222)

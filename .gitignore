@@ -1,0 +1,12 @@
+# --- secrets: NEVER commit these ---
+.env
+*.key
+
+# --- python ---
+.venv/
+__pycache__/
+*.pyc
+
+# --- local logs / scratch ---
+*.log
+voice-notes.txt
