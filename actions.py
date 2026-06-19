@@ -705,16 +705,48 @@ def _http_post_json(url: str, payload: dict, headers: dict, timeout: int = 60) -
         return json.loads(r.read().decode("utf-8"))
 
 
+def _claude_chat_via_cli(prompt: str) -> dict:
+    """Answer a quick question through the signed-in `claude` CLI (no API key
+    needed). Synchronous and short — meant for conversational replies, not work;
+    for real tasks use delegate_to_claude."""
+    import shutil
+    bin_ = shutil.which("claude") or getattr(agent_bridge, "CLAUDE_BIN", "")
+    if not (shutil.which("claude") or os.path.exists(getattr(agent_bridge, "CLAUDE_BIN", ""))):
+        return {"status": "error",
+                "error": "no ANTHROPIC_API_KEY set and the `claude` CLI isn't installed — "
+                         "add the key to .env or install Claude Code"}
+    ask = prompt + "\n\n(Answer in 2-3 short sentences, plain text for text-to-speech.)"
+    cmd = [bin_, "-p", ask]
+    try:
+        if os.name == "nt":  # the npm `claude` is a .cmd shim -> go through the shell
+            proc = subprocess.run(subprocess.list2cmdline(cmd), shell=True,
+                                  capture_output=True, text=True, timeout=60)
+        else:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "error": "Claude took too long to reply"}
+    except Exception as e:  # noqa: BLE001
+        return {"status": "error", "error": f"claude CLI failed: {e}"}
+    if proc.returncode != 0:
+        return {"status": "error",
+                "error": (proc.stderr or "claude CLI error").strip()[:200]}
+    return {"status": "ok", "prompt": prompt,
+            "response": proc.stdout.strip(), "via": "claude-cli"}
+
+
 def claude_chat(prompt: str = "", reset: bool = False) -> dict:
     """Send `prompt` to Claude (Anthropic Messages API) and return its reply for
     the voice model to speak. Keeps a short conversation history so follow-ups
-    have context. Needs ANTHROPIC_API_KEY (set CLAUDE_MODEL to override the model)."""
-    key = os.environ.get("ANTHROPIC_API_KEY")
-    if not key:
-        return {"status": "error", "error": "ANTHROPIC_API_KEY not set — add it to .env"}
+    have context. Uses ANTHROPIC_API_KEY if set; otherwise falls back to the
+    authenticated `claude` CLI (set CLAUDE_MODEL to override the model)."""
     p = (prompt or "").strip()
     if not p:
         return {"status": "error", "error": "empty prompt"}
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        # No API key, but the `claude` CLI is usually already signed in (it's what
+        # delegate_to_claude uses) — answer through it instead of erroring out.
+        return _claude_chat_via_cli(p)
     global _claude_history
     if reset:
         _claude_history = []
@@ -882,6 +914,14 @@ def github_status(repo: str = "", pr: str = "", branch: str = "") -> dict:
     return ghstatus.repo_status(repo, pr, branch)
 
 
+def ci_status(repo: str = "", pr: str = "", branch: str = "") -> dict:
+    """Explain CI for a repo — passing, or WHICH checks failed and why (from
+    GitHub's own failure summaries). Use for 'why is CI failing', 'what's broken',
+    'what do you mean it's failing', 'show me the failing checks'. Resolves a
+    bare/fuzzy repo name like github_status. Needs GITHUB_TOKEN."""
+    return ghstatus.ci_status(repo, pr, branch)
+
+
 def project_board(query: str = "", status: str = "") -> dict:
     """List the tickets on a GitHub Projects board, grouped by Status column, and
     read the summary aloud. Use for 'what's on my <name> board', 'what tickets do I
@@ -960,6 +1000,7 @@ TOOLS = {
     "stop_claude": stop_claude,
     "continue_claude": continue_claude,
     "github_status": github_status,
+    "ci_status": ci_status,
     "project_board": project_board,
     "ticket_details": ticket_details,
     "review_with_claude": review_with_claude,

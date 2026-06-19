@@ -159,34 +159,118 @@ def _resolve_repo(spoken: str) -> tuple[str, list]:
     return "", top
 
 
+def _resolve_repo_input(repo: str) -> tuple[str, dict | None]:
+    """Turn whatever was said into a real 'owner/name', or a problem to return.
+    Shared by repo_status and ci_status. Returns (full_name, None) on success, or
+    ("", problem_dict) where problem_dict is a ready-to-return error/disambiguation."""
+    repo = (repo or os.environ.get("VOICEOS_GITHUB_REPO") or "").strip().strip("/")
+    if not repo:
+        return "", {"status": "error", "error": "which repo? just say its name"}
+    if "/" in repo:
+        return repo, None
+    # Only a name was heard (the common voice case). Resolve it to a real repo
+    # instead of forcing the user to dictate 'owner/name'.
+    if not _have_token():
+        return "", {"status": "error",
+                    "error": "set GITHUB_TOKEN in .env so I can find that repo by name, "
+                             "or say it as 'owner/name'"}
+    resolved, candidates = _resolve_repo(repo)
+    if resolved:
+        return resolved, None
+    if candidates:
+        return "", {"status": "needs_disambiguation", "candidates": candidates,
+                    "summary": f"I couldn't pin down '{repo}'. Did you mean "
+                               + " or ".join(candidates) + "?"}
+    return "", {"status": "error",
+                "error": f"I don't see a repo like '{repo}' among yours."}
+
+
+def _failing_checks(repo: str, ref: str) -> list:
+    """Detail on the non-passing checks for a commit: each check's name plus
+    GitHub's OWN failure title/summary — which, for Actions, usually says exactly
+    what broke, so the voice loop can explain 'why is CI red' without raw logs."""
+    if not ref:
+        return []
+    data = _api(f"/repos/{repo}/commits/{ref}/check-runs")
+    runs = data.get("check_runs") if isinstance(data, dict) else None
+    out = []
+    for r in (runs or []):
+        if r.get("conclusion") in ("failure", "timed_out", "cancelled", "action_required"):
+            o = r.get("output") or {}
+            out.append({
+                "name": r.get("name", ""),
+                "conclusion": r.get("conclusion"),
+                "title": (o.get("title") or "").strip(),
+                "summary": (o.get("summary") or "").strip()[:300],
+                "url": r.get("details_url") or r.get("html_url") or "",
+            })
+    return out
+
+
+def ci_status(repo: str = "", pr: str = "", branch: str = "") -> dict:
+    """Explain CI for a repo: is it passing, and if not, WHICH checks failed and
+    why. Use for 'why is CI failing', 'what's broken', 'what do you mean it's
+    failing', 'show me the failing checks'. Resolves a bare/fuzzy repo name like
+    the rest; reads the PR head, a branch tip, or (default) the latest commit."""
+    repo, problem = _resolve_repo_input(repo)
+    if problem:
+        return problem
+
+    ref = ""
+    if pr:
+        data = _api(f"/repos/{repo}/pulls/{str(pr).lstrip('#').strip()}")
+        if isinstance(data, dict) and "_error" in data:
+            return {"status": "error", "error": data["_error"]}
+        ref = (data.get("head") or {}).get("sha", "")
+    elif branch:
+        ref = branch.strip()
+    if not ref:
+        commits = _api(f"/repos/{repo}/commits?per_page=1"
+                       + (f"&sha={branch.strip()}" if branch else ""))
+        if isinstance(commits, dict) and "_error" in commits:
+            return {"status": "error", "error": commits["_error"]}
+        ref = (commits[0].get("sha", "") if isinstance(commits, list) and commits else "")
+    if not ref:
+        return {"status": "error", "error": f"no commits found on {repo}"}
+
+    state = _ci_for_ref(repo, ref)
+    if state == "passing":
+        return {"status": "ok", "repo": repo, "ci": state, "failing_checks": [],
+                "summary": f"CI is passing on {repo}."}
+    if state in ("none",):
+        return {"status": "ok", "repo": repo, "ci": state, "failing_checks": [],
+                "summary": f"There are no CI checks configured on {repo}."}
+    if state == "running":
+        return {"status": "ok", "repo": repo, "ci": state, "failing_checks": [],
+                "summary": f"CI is still running on {repo}."}
+
+    failing = _failing_checks(repo, ref)
+    if not failing:
+        return {"status": "ok", "repo": repo, "ci": state, "failing_checks": [],
+                "summary": f"CI is {state} on {repo}, but I couldn't read per-check detail."}
+    parts = []
+    for c in failing[:4]:
+        why = c["title"] or c["summary"]
+        parts.append(f"'{c['name']}' {c['conclusion']}" + (f" — {why}" if why else ""))
+    more = f" (+{len(failing) - 4} more)" if len(failing) > 4 else ""
+    summary = (f"CI is failing on {repo}: " + "; ".join(parts) + more
+               + ". Open the check's logs to see the full error.")
+    return {"status": "ok", "repo": repo, "ci": state,
+            "failing_checks": failing, "summary": summary}
+
+
 def repo_status(repo: str = "", pr: str = "", branch: str = "") -> dict:
     """Summarize recent GitHub activity on `repo` (default VOICEOS_GITHUB_REPO):
     latest commit, open PRs, and CI state. Pass `pr` to focus one pull request,
     or `branch` to read a specific branch's tip. With NO repo (and none in env),
     auto-discovers your most recently active repos instead of erroring. A bare or
     roughly-spelled name (no owner) is fuzzy-matched against your real repos."""
-    repo = (repo or os.environ.get("VOICEOS_GITHUB_REPO") or "").strip().strip("/")
-    if not repo:
-        if pr or branch:
-            return {"status": "error", "error": "which repo? just say its name"}
+    raw = (repo or os.environ.get("VOICEOS_GITHUB_REPO") or "").strip().strip("/")
+    if not raw and not (pr or branch):
         return recent_work()  # nothing specified -> discover recent work
-    if "/" not in repo:
-        # Only a name was heard (the common voice case). Resolve it to a real repo
-        # instead of forcing the user to dictate 'owner/name'.
-        if not _have_token():
-            return {"status": "error",
-                    "error": "set GITHUB_TOKEN in .env so I can find that repo by name, "
-                             "or say it as 'owner/name'"}
-        resolved, candidates = _resolve_repo(repo)
-        if resolved:
-            repo = resolved
-        elif candidates:
-            return {"status": "needs_disambiguation", "candidates": candidates,
-                    "summary": f"I couldn't pin down '{repo}'. Did you mean "
-                               + " or ".join(candidates) + "?"}
-        else:
-            return {"status": "error",
-                    "error": f"I don't see a repo like '{repo}' among yours."}
+    repo, problem = _resolve_repo_input(repo)
+    if problem:
+        return problem
 
     if pr:
         pr = str(pr).lstrip("#").strip()
@@ -306,6 +390,9 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     if args and args[0] in ("recent", "--recent", "me"):
         print(json.dumps(recent_work(), indent=2))
+    elif args and args[0] == "ci":
+        print(json.dumps(ci_status(args[1] if len(args) > 1 else "",
+                                   args[2] if len(args) > 2 else ""), indent=2))
     else:
         repo = args[0] if args else ""
         pr = args[1] if len(args) > 1 else ""

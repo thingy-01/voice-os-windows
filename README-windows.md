@@ -109,7 +109,10 @@ does lands on **GitHub**. Two layers read that back, with **nothing hardcoded**:
   *"catch me up."* With a repo it checks that one — *"how's the Jurytics update
   going?"*, *"is the PR done?"* — latest commit, open PRs, CI, spoken aloud. You
   only say the **name** (no `owner/`); it's fuzzy-matched against your real repos,
-  so a misheard *"juridics"* still finds `…/juritix` (and asks if it's unsure).
+  so a roughly-spoken *"juritix"* still finds `…/jurytics` (and asks if it's unsure).
+- **`ci_status`.** When CI is red, *"why is it failing?"* / *"what's broken?"* names
+  the **failing checks and GitHub's own failure summary** — a concrete answer from
+  GitHub, not a generic explanation.
 - **`project_board` / `ticket_details`.** Talk through a **GitHub Projects board**
   (the new kanban boards at `github.com/users/<you>/projects/<n>`) — *"what's on my
   jurytics board?"*, *"what's in progress?"* lists tickets grouped by column;

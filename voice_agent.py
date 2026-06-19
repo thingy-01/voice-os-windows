@@ -129,7 +129,10 @@ INSTRUCTIONS = (
     "'how's the <project> update going', 'is the PR done', 'status of <name>' "
     "-> github_status with whatever NAME the user said (bare name is fine — it's "
     "fuzzy-matched; never demand 'owner/name'; if it returns needs_disambiguation, "
-    "ask which one and call again). For a PROJECT BOARD / tickets (kanban) — "
+    "ask which one and call again). If CI is reported failing and the user asks "
+    "'why', 'what's broken', 'what do you mean' -> ci_status for that repo (it "
+    "names the failing checks from GitHub; don't give a generic explanation). "
+    "For a PROJECT BOARD / tickets (kanban) — "
     "'what's on my <name> board', 'what tickets do I have', 'what's in progress' -> "
     "project_board; to dig into one ticket ('tell me about the login ticket', "
     "'ticket 12') -> ticket_details. 'have Claude review my recent work', 'what "
@@ -225,6 +228,12 @@ TOOLS = [
          "repo": {"type": "string", "description": "the repo name as the user said it (a bare name is fine; owner/name also works). Omit to auto-discover recent repos."},
          "pr": {"type": "string", "description": "a pull request number to focus (optional)"},
          "branch": {"type": "string", "description": "a branch to read the tip of (optional)"}}, "required": []}},
+    {"type": "function", "name": "ci_status",
+     "description": "Explain CI for a repo and speak the `summary`: whether it's passing, or WHICH checks failed and why (pulled from GitHub's own failure summaries — not a generic explanation). Use whenever the user asks 'why is CI failing', 'what's broken', 'what do you mean it's failing', 'what failed', 'show me the failing checks', typically right after github_status reports CI failing. Pass the repo name the user said (bare/fuzzy is fine); pr or branch optional.",
+     "parameters": {"type": "object", "properties": {
+         "repo": {"type": "string", "description": "the repo name as said (bare name ok; omit to use the default)"},
+         "pr": {"type": "string", "description": "a PR number to check instead of the default branch (optional)"},
+         "branch": {"type": "string", "description": "a branch to check (optional)"}}, "required": []}},
     {"type": "function", "name": "project_board",
      "description": "Read a GitHub Projects board (the kanban board of tickets/issues) and speak the `summary`. Use for 'what's on my <name> board', 'what tickets do I have', 'what's in progress', 'what's left', 'walk me through the board'. Pass the board name the user said as query (bare name is fine — fuzzy-matched; a URL or number also works; omit for the default/only board), and status to filter to a column ('in progress', 'todo', 'done'). If status returns 'needs_disambiguation', read the summary to ask which board, then call again with the chosen name.",
      "parameters": {"type": "object", "properties": {
