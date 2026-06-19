@@ -40,6 +40,7 @@ from urllib.parse import quote
 import agent_bridge
 import desktop
 import github_status as ghstatus
+import github_projects as ghprojects
 
 LOG_DIR = tempfile.gettempdir()
 CLAUDE_LOG = os.path.join(LOG_DIR, "voiceos-claude.log")
@@ -881,6 +882,25 @@ def github_status(repo: str = "", pr: str = "", branch: str = "") -> dict:
     return ghstatus.repo_status(repo, pr, branch)
 
 
+def project_board(query: str = "", status: str = "") -> dict:
+    """List the tickets on a GitHub Projects board, grouped by Status column, and
+    read the summary aloud. Use for 'what's on my <name> board', 'what tickets do I
+    have', 'what's in progress', 'what's left to do'. `query` picks the board (a
+    name like 'jurytics', a URL, or a number; omit for your default/only board);
+    `status` filters to a column like 'in progress' or 'todo'. Needs GITHUB_TOKEN
+    with the read:project scope. If status is 'needs_disambiguation', read the
+    summary to ask which board, then call again with that name."""
+    return ghprojects.project_board(query, status)
+
+
+def ticket_details(which: str = "", board: str = "") -> dict:
+    """Open ONE ticket on a project board in depth — its status, state, assignees,
+    description, and latest comments — for 'tell me about the login ticket', 'what's
+    the deal with ticket 12', 'read me that issue'. `which` is a number or part of
+    the title; `board` optionally names which board to look on."""
+    return ghprojects.ticket_details(which, board)
+
+
 def review_with_claude(focus: str = "") -> dict:
     """The deep layer: auto-discover your recent GitHub work, then hand it to a
     background Claude Code agent that reasons over it and gives a spoken briefing
@@ -940,6 +960,8 @@ TOOLS = {
     "stop_claude": stop_claude,
     "continue_claude": continue_claude,
     "github_status": github_status,
+    "project_board": project_board,
+    "ticket_details": ticket_details,
     "review_with_claude": review_with_claude,
 }
 

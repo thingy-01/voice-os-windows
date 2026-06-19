@@ -129,7 +129,10 @@ INSTRUCTIONS = (
     "'how's the <project> update going', 'is the PR done', 'status of <name>' "
     "-> github_status with whatever NAME the user said (bare name is fine — it's "
     "fuzzy-matched; never demand 'owner/name'; if it returns needs_disambiguation, "
-    "ask which one and call again). 'have Claude review my recent work', 'what "
+    "ask which one and call again). For a PROJECT BOARD / tickets (kanban) — "
+    "'what's on my <name> board', 'what tickets do I have', 'what's in progress' -> "
+    "project_board; to dig into one ticket ('tell me about the login ticket', "
+    "'ticket 12') -> ticket_details. 'have Claude review my recent work', 'what "
     "should I work on next', 'catch me up and tell me what to do next' -> "
     "review_with_claude, then check_claude a few seconds later to read its briefing.\n"
     "- ACT ON CLAUDE'S SUGGESTION: after you've relayed a Claude review or proposed "
@@ -222,6 +225,16 @@ TOOLS = [
          "repo": {"type": "string", "description": "the repo name as the user said it (a bare name is fine; owner/name also works). Omit to auto-discover recent repos."},
          "pr": {"type": "string", "description": "a pull request number to focus (optional)"},
          "branch": {"type": "string", "description": "a branch to read the tip of (optional)"}}, "required": []}},
+    {"type": "function", "name": "project_board",
+     "description": "Read a GitHub Projects board (the kanban board of tickets/issues) and speak the `summary`. Use for 'what's on my <name> board', 'what tickets do I have', 'what's in progress', 'what's left', 'walk me through the board'. Pass the board name the user said as query (bare name is fine — fuzzy-matched; a URL or number also works; omit for the default/only board), and status to filter to a column ('in progress', 'todo', 'done'). If status returns 'needs_disambiguation', read the summary to ask which board, then call again with the chosen name.",
+     "parameters": {"type": "object", "properties": {
+         "query": {"type": "string", "description": "which board (a name like 'jurytics', a URL, or a number; optional)"},
+         "status": {"type": "string", "description": "filter to one column, e.g. 'in progress' (optional)"}}, "required": []}},
+    {"type": "function", "name": "ticket_details",
+     "description": "Open ONE ticket on a project board in depth — status, state, assignees, description, and the latest comments — and speak the `summary`. Use for 'tell me about the login ticket', 'what's the deal with ticket 12', 'read me that issue', or a follow-up after project_board. which = a ticket number or part of its title; board optionally names which board.",
+     "parameters": {"type": "object", "properties": {
+         "which": {"type": "string", "description": "a ticket number ('12') or part of its title ('the login bug')"},
+         "board": {"type": "string", "description": "which board to look on (optional)"}}, "required": []}},
     {"type": "function", "name": "review_with_claude",
      "description": "Deep review: auto-discover the user's recent GitHub work, then have a background Claude Code agent reason over it and give a spoken briefing plus the best next step per project. Use for 'have Claude review what I've been working on', 'what should I work on next', 'catch me up and tell me what to do next'. Returns a job id — then call check_claude (after a few seconds) to read Claude's summary aloud. Use github_status (no repo) instead for a quick factual overview without the deeper reasoning.",
      "parameters": {"type": "object", "properties": {

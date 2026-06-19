@@ -110,6 +110,12 @@ does lands on **GitHub**. Two layers read that back, with **nothing hardcoded**:
   going?"*, *"is the PR done?"* — latest commit, open PRs, CI, spoken aloud. You
   only say the **name** (no `owner/`); it's fuzzy-matched against your real repos,
   so a misheard *"juridics"* still finds `…/juritix` (and asks if it's unsure).
+- **`project_board` / `ticket_details`.** Talk through a **GitHub Projects board**
+  (the new kanban boards at `github.com/users/<you>/projects/<n>`) — *"what's on my
+  jurytics board?"*, *"what's in progress?"* lists tickets grouped by column;
+  *"tell me about the login ticket"* / *"ticket 12"* reads one in depth (status,
+  assignees, description, latest comments). Board name is fuzzy-matched too; set a
+  default with `VOICEOS_GITHUB_PROJECT`. Needs the token's `read:project` scope.
 - **`review_with_claude` (deep).** Auto-discovers the same recent work, then hands
   it to a background Claude Code agent that reasons over it and gives a briefing
   **plus the best next step per project** — *"have Claude review what I've been
