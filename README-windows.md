@@ -112,7 +112,9 @@ does lands on **GitHub**. Two layers read that back, with **nothing hardcoded**:
   it to a background Claude Code agent that reasons over it and gives a briefing
   **plus the best next step per project** — *"have Claude review what I've been
   working on and tell me what's next."* Then ask *"what did Claude say?"*
-  (`check_claude`), and direct the next task with `delegate_to_claude`.
+  (`check_claude`), and — this is the nice part — *"go ahead and do the first thing
+  you suggested"* (`continue_claude`) **resumes Claude's same session** so it acts
+  on its own plan with full memory. (For a brand-new task, `delegate_to_claude`.)
 
 All it needs is a token (the repo isn't hardcoded — discovery finds it):
 

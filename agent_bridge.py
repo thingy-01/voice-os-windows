@@ -155,6 +155,41 @@ def start_job(instruction: str, cwd: str | None = None) -> dict:
     instruction = (instruction or "").strip()
     if not instruction:
         return {"status": "error", "error": "empty instruction"}
+    return _spawn(instruction, cwd=cwd)
+
+
+def resume_job(instruction: str, job_id: str = "") -> dict:
+    """Continue a previous Claude job in the SAME session (claude --resume), so
+    Claude still remembers everything it just did/said. Use this to act on a plan
+    it proposed — e.g. after review_with_claude, 'go ahead and do the first thing
+    you suggested'. Spawns a NEW background job that resumes the old one's session."""
+    instruction = (instruction or "").strip()
+    if not instruction:
+        return {"status": "error", "error": "empty instruction"}
+    job_id = _normalize_job_id(job_id) or latest_job_id() or ""
+    meta = _read_json(os.path.join(_job_dir(job_id), "meta.json"), None)
+    if not meta:
+        return {"status": "error", "error": f"no job to continue ({job_id!r})"}
+    sid = _session_id_of(job_id)
+    if not sid:
+        return {"status": "error",
+                "error": f"{job_id} hasn't produced a Claude session yet — try again in a moment"}
+    return _spawn(instruction, cwd=meta.get("cwd"), resume=sid, resumed_from=job_id)
+
+
+def _session_id_of(job_id: str) -> str:
+    """The Claude session id a job ran under (from its stream), for --resume."""
+    for ev in _parse_stream(os.path.join(_job_dir(job_id), "stream.jsonl")):
+        sid = ev.get("session_id")
+        if sid:
+            return sid
+    return ""
+
+
+def _spawn(instruction: str, cwd: str | None = None,
+           resume: str = "", resumed_from: str = "") -> dict:
+    """Spawn a detached `claude -p` job (optionally resuming a session). Shared by
+    start_job and resume_job."""
     if not (shutil.which("claude") or os.path.exists(CLAUDE_BIN)):
         return {"status": "error",
                 "error": "the `claude` CLI is not installed (npm i -g @anthropic-ai/claude-code)"}
@@ -169,6 +204,8 @@ def start_job(instruction: str, cwd: str | None = None) -> dict:
 
     cmd = [CLAUDE_BIN, "-p", instruction,
            "--output-format", "stream-json", "--verbose"]
+    if resume:
+        cmd += ["--resume", resume]
     perm = os.environ.get("VOICEOS_CLAUDE_PERMISSION_MODE", DEFAULT_PERMISSION_MODE)
     if perm:
         cmd += ["--permission-mode", perm]
@@ -206,11 +243,16 @@ def start_job(instruction: str, cwd: str | None = None) -> dict:
         "cwd": work_dir,
         "started_at": time.time(),
         "cmd": cmd,
+        "resumed_from": resumed_from,
     })
     _write_json(os.path.join(jd, "cursor.json"), {"events_seen": 0})
     _set_latest(job_id)
-    return {"status": "ok", "job_id": job_id, "instruction": instruction,
-            "message": f"Started {job_id}. Ask me for an update any time."}
+    out = {"status": "ok", "job_id": job_id, "instruction": instruction,
+           "message": f"Started {job_id}. Ask me for an update any time."}
+    if resumed_from:
+        out["resumed_from"] = resumed_from
+        out["message"] = f"Continuing {resumed_from} as {job_id} — ask me for an update."
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +453,12 @@ if __name__ == "__main__":
     cmd = args[0] if args else "help"
     if cmd == "start" and len(args) > 1:
         print(json.dumps(start_job(" ".join(args[1:])), indent=2))
+    elif cmd == "resume" and len(args) > 1:
+        # resume [job_id] <instruction...>   (job_id optional -> latest)
+        if args[1].startswith("job") or args[1].isdigit():
+            print(json.dumps(resume_job(" ".join(args[2:]), args[1]), indent=2))
+        else:
+            print(json.dumps(resume_job(" ".join(args[1:])), indent=2))
     elif cmd == "check":
         jid = args[1] if len(args) > 1 else ""
         print(json.dumps(job_status(jid, wait=0.0), indent=2))

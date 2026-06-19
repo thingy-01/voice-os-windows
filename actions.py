@@ -861,6 +861,17 @@ def stop_claude(job_id: str = "") -> dict:
     return agent_bridge.stop_job(job_id)
 
 
+def continue_claude(instruction: str = "", job_id: str = "") -> dict:
+    """Continue the previous Claude Code job in the SAME session, so Claude still
+    remembers what it just did/said. Use to ACT ON A PLAN it proposed — after a
+    review or suggestion, 'do the first thing you suggested', 'go ahead with that',
+    'okay, do it', 'continue'. Pass the user's directive as `instruction` (it can
+    be short like 'go ahead and do the first next-step you recommended' — Claude
+    resumes with full memory). Returns a new job id; ask check_claude for results."""
+    return agent_bridge.resume_job(instruction or "Go ahead with what you suggested.",
+                                   job_id)
+
+
 def github_status(repo: str = "", pr: str = "", branch: str = "") -> dict:
     """Check GitHub. With NO repo it auto-discovers your most recently active
     repos and summarizes them ('what have I been working on', 'catch me up') —
@@ -927,6 +938,7 @@ TOOLS = {
     "delegate_to_claude": delegate_to_claude,
     "check_claude": check_claude,
     "stop_claude": stop_claude,
+    "continue_claude": continue_claude,
     "github_status": github_status,
     "review_with_claude": review_with_claude,
 }

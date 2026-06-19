@@ -130,6 +130,11 @@ INSTRUCTIONS = (
     "-> github_status with that repo. 'have Claude review my recent work', 'what "
     "should I work on next', 'catch me up and tell me what to do next' -> "
     "review_with_claude, then check_claude a few seconds later to read its briefing.\n"
+    "- ACT ON CLAUDE'S SUGGESTION: after you've relayed a Claude review or proposed "
+    "next step, if the user says 'do the first thing you suggested', 'go ahead with "
+    "that', 'okay do it', 'make it happen', 'continue' -> continue_claude (it resumes "
+    "Claude's SAME session so it acts on its own plan). Use delegate_to_claude only "
+    "for a brand-new task unrelated to what Claude was just doing.\n"
     "- music in CIDER (the user says 'Cider', or 'next/pause/play X in Cider'): cider_control. "
     "Plain 'play music' with no app named = play_music (Spotify).\n"
     "- play music: play_music. control Premiere: premiere_control. read the screen: "
@@ -204,6 +209,11 @@ TOOLS = [
     {"type": "function", "name": "stop_claude",
      "description": "Cancel a running delegated Claude Code job. Use for 'stop that', 'cancel the agent', 'never mind, stop Claude'. Default = the latest job.",
      "parameters": {"type": "object", "properties": {"job_id": {"type": "string"}}, "required": []}},
+    {"type": "function", "name": "continue_claude",
+     "description": "Continue the previous Claude Code job in the SAME session (Claude keeps full memory of what it just did/said). Use to ACT ON A PLAN Claude proposed — after a review_with_claude briefing or any suggestion, when the user says 'do the first thing you suggested', 'go ahead with that', 'okay do it', 'continue', 'make it happen'. Pass the directive as instruction (short is fine — Claude remembers its own plan). Returns a new job id; then check_claude for results. (Use delegate_to_claude instead for a brand-new, unrelated task.)",
+     "parameters": {"type": "object", "properties": {
+         "instruction": {"type": "string", "description": "what to do next, e.g. 'go ahead and do the first next-step you recommended'"},
+         "job_id": {"type": "string", "description": "which job to continue (optional; default = latest)"}}, "required": []}},
     {"type": "function", "name": "github_status",
      "description": "Check GitHub activity and read the `summary` aloud. With NO repo it AUTO-DISCOVERS the user's most recently active repos and summarizes them — use for 'what have I been working on', 'catch me up', 'any recent activity' (nothing hardcoded). With a repo it checks that one — use for 'how's the <project> update going', 'is the PR done', 'status of <owner/repo>', including a CLOUD Claude Code job that pushes to a repo. Pass repo as 'owner/name' only if the user names one; pr for a specific pull request.",
      "parameters": {"type": "object", "properties": {
@@ -261,6 +271,10 @@ _speaking = False
 _listening = WAKE_MODE
 _in_stream = None
 _in_dev = None
+_audio_frames = 0  # mic frames forwarded since the current hold started (anti empty-commit)
+# Each mic frame is BLOCK samples = 100ms; the Realtime API rejects a commit with
+# <100ms buffered, so require a small floor before we commit on key release.
+MIN_AUDIO_FRAMES = 2
 
 
 def _open_mic():
@@ -356,6 +370,7 @@ async def dispatch_tool(name: str, args: dict) -> dict:
 
 
 async def mic_pump(ws):
+    global _audio_frames
     loop = asyncio.get_event_loop()
     while True:
         data = await loop.run_in_executor(None, mic_q.get)
@@ -365,6 +380,7 @@ async def mic_pump(ws):
             continue
         await ws.send(json.dumps({"type": "input_audio_buffer.append",
                                   "audio": base64.b64encode(data).decode()}))
+        _audio_frames += 1  # count what we actually sent, so a too-short hold won't commit empty
 
 
 async def ptt_console(ws):
@@ -389,13 +405,18 @@ def _start_hotkey_listener():
 async def hotkey_console(ws):
     """Hold the global key to talk; release to send. Pressing while the model is
     talking barges in."""
-    global _listening, _speaking, _t_release
+    global _listening, _speaking, _t_release, _audio_frames
     loop = asyncio.get_event_loop()
     while True:
         ev = await loop.run_in_executor(None, key_events.get)
         if ev == "down":
-            if _speaking or _play_buf:
+            # BARGE-IN: only CANCEL when a response is actually active (guarding on
+            # _speaking avoids the 'response_cancel_not_active' error); always stop
+            # any audio that's still playing/draining.
+            if _speaking:
                 await ws.send(json.dumps({"type": "response.cancel"}))
+                print("⏹  interrupted", flush=True)
+            if _speaking or _play_buf:
                 _play_buf.clear()
                 while not play_q.empty():
                     try:
@@ -403,19 +424,25 @@ async def hotkey_console(ws):
                     except queue.Empty:
                         break
                 _speaking = False
-                print("⏹  interrupted", flush=True)
             t0 = time.monotonic()
             _open_mic()
             await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
+            _audio_frames = 0  # fresh hold: count audio from here
             _listening = True
             print(f"🎙  listening… (mic open {(time.monotonic()-t0)*1000:.0f}ms)", flush=True)
         elif ev == "up":
             if not _listening:
                 continue
             _close_mic()
-            await asyncio.sleep(0.15)
+            await asyncio.sleep(0.15)  # let the tail of speech flush while still listening
             _listening = False
             _write_hud(False, 0.0)
+            # Too short / no speech captured -> don't commit an empty buffer (avoids
+            # 'input_audio_buffer_commit_empty'); just drop it and wait for the next hold.
+            if _audio_frames < MIN_AUDIO_FRAMES:
+                await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
+                print("·  (too short — hold the key while you speak)", flush=True)
+                continue
             _t_release = time.monotonic()
             await ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
             await ws.send(json.dumps({"type": "response.create"}))
