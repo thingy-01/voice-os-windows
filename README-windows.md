@@ -25,8 +25,16 @@ REM 2. run it (creates a venv, installs deps, launches in hold-to-talk)
 run.bat
 ```
 
-Then **hold Right Ctrl**, talk, release: *"open Spotify," "play some Tchaikovsky,"
+Then **hold F13**, talk, release: *"open Spotify," "play some Tchaikovsky,"
 "what's on my screen?"*
+
+**Radio-style hold-to-talk on a mouse button.** The default key is **F13** — a
+key no physical keyboard has, so it never clashes with typing or shortcuts. Bind
+a spare **mouse button to F13** in your mouse software (Logitech G HUB / Razer
+Synapse), set to send the keystroke **"while held"**, and you've got a
+walkie-talkie button. Not sure what your button emits? `python voice_agent.py
+--detect-key`, hold the button, and use the printed name or scan code as
+`--hotkey <value>` (or `VOICEOS_HOTKEY` in `.env`).
 
 > If global hotkeys don't register, run the terminal **as Administrator** (the
 > `keyboard` hook needs elevation when an elevated app is focused), or use
@@ -38,7 +46,7 @@ Then **hold Right Ctrl**, talk, release: *"open Spotify," "play some Tchaikovsky
 
 | Mode | Command | Notes |
 |---|---|---|
-| **Hold-to-talk** (default) | `run.bat` | Hold **Right Ctrl** anywhere. Reliable, $0 idle. Change the key: `run.bat --hotkey f8`. |
+| **Hold-to-talk** (default) | `run.bat` | Hold **F13** (bind it to a mouse button) anywhere. Reliable, $0 idle. Change the key: `run.bat --hotkey right_ctrl` (or any name/scan code). |
 | **Push-to-talk** | `run.bat --push-to-talk` | Press ENTER, talk. No global hook needed. |
 | **Wake word "hey chat"** | `run.bat --wake` | Streams the mic continuously (~$1/hr idle). |
 
@@ -50,7 +58,8 @@ Pick a specific mic: `set VOICEOS_MIC=Scarlett` then `run.bat`.
 
 `open_app` · `open_thing` · `web_search` · `click_link` · `take_note` · `play_music` ·
 `run_terminal` · `read_screen_aloud` · `start_obs_recording` · `stop_obs_recording` ·
-`obs_scene` · `premiere_control` · `ask_claude` · `claude_chat` · `cider_control`
+`obs_scene` · `premiere_control` · `ask_claude` · `claude_chat` · `cider_control` ·
+`delegate_to_claude` · `check_claude` · `stop_claude`
 
 `claude_chat` sends a request to Claude via the Anthropic API and reads the reply
 back aloud (set `ANTHROPIC_API_KEY` in `.env`); it keeps short conversation context
@@ -58,6 +67,35 @@ for follow-ups. `cider_control` drives the [Cider](https://cider.sh) music playe
 through its local API on `localhost:10767` — enable it and copy the token at
 Cider → Settings → Connectivity → Manage External Application Access, then set
 `CIDER_API_TOKEN`.
+
+### Delegate real work to Claude Code (the two-way bridge)
+
+`claude_chat` is a one-shot Q&A; **`delegate_to_claude` hands a task to a headless
+Claude *Code* agent that actually does the work on this PC** — edits files, runs
+commands, multi-step jobs — in the **background**, and `check_claude` reads
+summarized progress back to you:
+
+```
+"hold F13" → "ask Claude to add a dark-mode toggle to the settings page"
+        → ⚙ delegate_to_claude(...)  → "On it — I've started job 1."
+   ...do something else...
+"hold F13" → "how's it going?"
+        → ⚙ check_claude()  → "It edited Settings.tsx and added the toggle; done."
+```
+
+`delegate_to_claude` returns instantly (the voice loop never blocks); `check_claude`
+reports **only what's new since you last asked** plus Claude's final answer when
+done. Say *"stop that"* to cancel. Needs the **`claude` CLI** on PATH
+(`claude --version`; Windows: `irm https://claude.ai/install.ps1 | iex`, then a new
+terminal). Config via `.env`: `VOICEOS_CLAUDE_CWD` (which project it works in),
+`VOICEOS_CLAUDE_PERMISSION_MODE` (default `bypassPermissions` so it runs unattended —
+point `CWD` at a project you trust). Try it without a mic or OpenAI key:
+
+```bat
+python agent_bridge.py start "create hello.txt with the word hi"
+python agent_bridge.py wait
+python test_agent_bridge.py
+```
 
 Every tool is a small function in `actions.py` and is **runnable standalone** (no
 OpenAI key needed) — this is how you test each one:
@@ -84,9 +122,10 @@ your voice ─▶ gpt-realtime-2 (decides which tool) ─▶ actions.py
 ```
 
 - `voice_agent.py` — the realtime loop (mic ↔ model ↔ tools) with hold-to-talk, PTT, and wake modes.
-- `hotkey.py` — global hold-to-talk via the `keyboard` library (replaces the macOS Carbon shim).
+- `hotkey.py` — global hold-to-talk via the `keyboard` library (replaces the macOS Carbon shim). Default key **F13**.
 - `desktop.py` — the Windows "accessibility" layer (UI Automation tree, window focus/geometry).
 - `actions.py` — the tools (the hands). Each runnable standalone.
+- `agent_bridge.py` — the Claude Code bridge: background jobs + summarized updates (`delegate_to_claude` / `check_claude` / `stop_claude`). Runnable standalone.
 - `overlay.py` — the optional waveform HUD.
 
 ---

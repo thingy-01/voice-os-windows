@@ -12,6 +12,10 @@ voice_agent.hotkey_console() already consumes — so the realtime loop is unchan
 
 Hold the key  -> "down"  (start capturing mic)
 Release       -> "up"    (commit buffer, ask the model to respond)
+
+The key may be a friendly name ("f13", "right_ctrl") OR a raw scan code number
+(e.g. "100"). Scan codes are the fallback when the `keyboard` library doesn't
+recognise a key by name — find yours with `python voice_agent.py --detect-key`.
 """
 from __future__ import annotations
 
@@ -28,25 +32,31 @@ HOTKEY_ALIASES = {
     "right_shift": "right shift",
     "f8": "f8",
     "f9": "f9",
+    "f13": "f13",
     "scroll_lock": "scroll lock",
     "pause": "pause",
 }
 
-DEFAULT_KEY = "right ctrl"
+# F13 is the default: a key no physical keyboard has, so it never clashes with
+# typing or shortcuts — ideal to bind to a spare mouse button (Logitech G HUB /
+# Razer Synapse, set to send the keystroke "while held") for hold-to-talk.
+DEFAULT_KEY = "f13"
 
 
 def resolve_key(name: str | None) -> str:
     if not name:
         return DEFAULT_KEY
     n = name.strip().lower()
-    return HOTKEY_ALIASES.get(n, n)  # pass through raw `keyboard` names too
+    return HOTKEY_ALIASES.get(n, n)  # pass through raw `keyboard` names / scan codes
 
 
 def start_hotkey_listener(key_events: "queue.Queue[str]", key_name: str | None = None) -> str:
     """Begin watching the global hold-to-talk key. Returns the resolved key name.
 
-    Non-fatal if the `keyboard` library is missing — prints guidance and returns
-    an empty string so the caller can fall back to push-to-talk."""
+    Matches by `keyboard` key name OR raw scan code (if `key` is digits), via a
+    global hook — so it works even for keys the library can't name (like F13 on
+    some layouts). Non-fatal if the `keyboard` library is missing: prints guidance
+    and returns an empty string so the caller can fall back to push-to-talk."""
     key = resolve_key(key_name)
     try:
         import keyboard  # type: ignore
@@ -55,10 +65,19 @@ def start_hotkey_listener(key_events: "queue.Queue[str]", key_name: str | None =
               "Run: pip install keyboard   (or use --push-to-talk)")
         return ""
 
+    want = key.strip().lower()
+    want_code = int(want) if want.isdigit() else None
     state = {"down": False}
+
+    def _matches(event) -> bool:
+        if want_code is not None:
+            return event.scan_code == want_code
+        return (event.name or "").lower() == want
 
     def handler(event):
         # keyboard delivers repeated 'down' events while held; collapse to one.
+        if not _matches(event):
+            return
         if event.event_type == "down" and not state["down"]:
             state["down"] = True
             key_events.put("down")
@@ -67,7 +86,7 @@ def start_hotkey_listener(key_events: "queue.Queue[str]", key_name: str | None =
             key_events.put("up")
 
     try:
-        keyboard.hook_key(key, handler, suppress=False)
+        keyboard.hook(handler, suppress=False)
     except Exception as e:
         print(f"⚠  could not hook key {key!r}: {e}. "
               "On some setups global hooks need an elevated terminal.")

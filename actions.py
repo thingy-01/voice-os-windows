@@ -37,6 +37,7 @@ import urllib.error
 import urllib.request
 from urllib.parse import quote
 
+import agent_bridge
 import desktop
 
 LOG_DIR = tempfile.gettempdir()
@@ -834,6 +835,32 @@ def cider_control(action: str = "playpause", query: str = "", volume: float = No
 
 
 # ---------------------------------------------------------------------------
+# Claude Code bridge — delegate real, multi-step work and hear summarized updates
+# ---------------------------------------------------------------------------
+# Distinct from claude_chat (a one-shot Anthropic API Q&A): these hand a task to
+# a headless Claude *Code* agent that actually edits files / runs commands on this
+# PC, in the background, via agent_bridge.py. Cross-platform; needs the `claude`
+# CLI on PATH (claude --version).
+def delegate_to_claude(instruction: str = "") -> dict:
+    """Hand a task to a background Claude Code agent that does the work (build/
+    edit/run code, research, multi-step jobs). Returns immediately with a job id
+    so the voice loop stays responsive; ask for progress with check_claude."""
+    return agent_bridge.start_job(instruction)
+
+
+def check_claude(job_id: str = "") -> dict:
+    """Get an update on a delegated job and have it summarized back. Empty job_id
+    = the most recent job. Returns status, what's NEW since you last asked, and
+    Claude's final answer when done (waits briefly for a near-done job)."""
+    return agent_bridge.job_status(job_id, wait=8.0)
+
+
+def stop_claude(job_id: str = "") -> dict:
+    """Cancel a running delegated Claude Code job (latest one if unspecified)."""
+    return agent_bridge.stop_job(job_id)
+
+
+# ---------------------------------------------------------------------------
 # tool registry (same names/order as the macOS original)
 # ---------------------------------------------------------------------------
 TOOLS = {
@@ -852,6 +879,9 @@ TOOLS = {
     "ask_claude": ask_claude,
     "claude_chat": claude_chat,
     "cider_control": cider_control,
+    "delegate_to_claude": delegate_to_claude,
+    "check_claude": check_claude,
+    "stop_claude": stop_claude,
 }
 
 

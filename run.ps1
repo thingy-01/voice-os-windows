@@ -1,7 +1,7 @@
 # ===================================================================
 #  Voice OS (Windows) launcher (PowerShell).
 #  Creates a venv, installs deps, loads .env, runs in HOLD-TO-TALK.
-#  Usage:   .\run.ps1            (hold Right Ctrl to talk)
+#  Usage:   .\run.ps1            (hold F13 to talk; bind it to a mouse button)
 #           .\run.ps1 --push-to-talk
 #  If PowerShell blocks the script, run this once:
 #       Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
@@ -42,5 +42,5 @@ if (-not $env:OPENAI_API_KEY) {
     exit 1
 }
 
-# --- run (default = hold-to-talk on Right Ctrl) ---
+# --- run (default = hold-to-talk on F13) ---
 python voice_agent.py @args

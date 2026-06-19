@@ -41,6 +41,6 @@ if "%OPENAI_API_KEY%"=="" (
     exit /b 1
 )
 
-REM --- run (default mode = hold-to-talk on Right Ctrl) ---
+REM --- run (default mode = hold-to-talk on F13; bind it to a mouse button) ---
 python voice_agent.py %*
 endlocal

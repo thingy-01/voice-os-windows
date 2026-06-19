@@ -8,7 +8,9 @@ unchanged in spirit; the only Windows-specific swap is the global hotkey backend
 temp-file paths.
 
 Modes:
-  --hotkey [KEY]    HOLD a global key to talk (default). KEY defaults to right ctrl.
+  --hotkey [KEY]    HOLD a global key to talk (default). KEY defaults to f13.
+  --detect-key      print the name/scan code of any key you press, then exit
+                    (use it to find what your mouse button emits).
   --push-to-talk    press ENTER to talk
   (no flag)         wake word "hey chat"  (streams mic continuously)
 
@@ -71,12 +73,14 @@ def _arg_value(flag, default=None):
 
 
 PTT = "--push-to-talk" in sys.argv
-# Default experience for this build is HOLD-TO-TALK. If no mode flag is given,
-# we still default to hotkey (right ctrl) per the project goal.
+# Default experience for this build is HOLD-TO-TALK on F13 — a key no physical
+# keyboard has, so it never clashes; bind it to a spare mouse button for
+# radio-style push-to-talk. Override with --hotkey <key|scancode> or VOICEOS_HOTKEY.
 _explicit_wake = "--wake" in sys.argv
-HOTKEY_NAME = _arg_value("--hotkey", "right_ctrl") if ("--hotkey" in sys.argv) else None
+_HOTKEY_DEFAULT = os.environ.get("VOICEOS_HOTKEY", "f13")
+HOTKEY_NAME = _arg_value("--hotkey", _HOTKEY_DEFAULT) if ("--hotkey" in sys.argv) else None
 if not PTT and not _explicit_wake and HOTKEY_NAME is None:
-    HOTKEY_NAME = "right_ctrl"  # default mode
+    HOTKEY_NAME = _HOTKEY_DEFAULT  # default mode
 HOTKEY_MODE = HOTKEY_NAME is not None and not PTT
 WAKE_MODE = not (PTT or HOTKEY_MODE)
 
@@ -108,8 +112,16 @@ INSTRUCTIONS = (
     "ask_claude with an EMPTY question — it just navigates into the project.\n"
     "- If the user wants Claude to WRITE, REWRITE, SUGGEST, or answer anything: call "
     "ask_claude with the request as the question. NEVER answer on Claude's behalf.\n"
-    "- a general question, explanation, idea, or 'ask Claude ...' / 'have Claude write ...': "
-    "claude_chat — its reply is Claude's; read it back aloud naturally.\n"
+    "- a general question, explanation, idea, or a quick 'ask Claude ...' with NO "
+    "machine work: claude_chat — its reply is Claude's; read it back aloud naturally.\n"
+    "- DELEGATE REAL WORK to Claude Code (build/edit/run code, multi-step tasks on "
+    "this PC): 'ask Claude to build/fix/write/refactor ...', 'have Claude make ...', "
+    "'tell the agent to ...' -> delegate_to_claude with the full request. It starts a "
+    "BACKGROUND job and returns immediately; say you've started and the user can ask "
+    "for an update. NEVER do the task yourself or invent results.\n"
+    "- GET AN UPDATE on a delegated job: 'how's it going', 'is it done', 'what did "
+    "Claude do', 'any update' -> check_claude (no id = latest job). 'stop that' / "
+    "'cancel the agent' -> stop_claude.\n"
     "- music in CIDER (the user says 'Cider', or 'next/pause/play X in Cider'): cider_control. "
     "Plain 'play music' with no app named = play_music (Spotify).\n"
     "- play music: play_music. control Premiere: premiere_control. read the screen: "
@@ -175,6 +187,15 @@ TOOLS = [
          "action": {"type": "string", "enum": ["play", "pause", "playpause", "toggle", "stop", "next", "skip", "previous", "back", "shuffle", "repeat", "volume", "now_playing"]},
          "query": {"type": "string", "description": "song/artist to search when action is 'play'"},
          "volume": {"type": "number", "description": "0.0–1.0 when action is 'volume'"}}, "required": ["action"]}},
+    {"type": "function", "name": "delegate_to_claude",
+     "description": "Hand a task to a headless Claude Code agent that runs in the BACKGROUND and actually does the work on this PC — build/edit/run code, research, multi-step jobs. Use for 'ask Claude to build/fix/write/refactor ...', 'have Claude ...', 'tell the agent to ...'. Returns immediately with a job id (work keeps going); confirm you've started and that the user can ask for an update. Don't wait or invent results. (For a quick spoken Q&A with no machine work, use claude_chat instead.)",
+     "parameters": {"type": "object", "properties": {"instruction": {"type": "string", "description": "the full task to hand to Claude, in the user's own words"}}, "required": ["instruction"]}},
+    {"type": "function", "name": "check_claude",
+     "description": "Get an update on a delegated Claude Code job and summarize it back. Use for 'how's it going', 'is it done yet', 'what did Claude do', 'any update', 'check on that'. Leave job_id empty for the most recent job, or pass it when the user names one ('check job two'). Read `result` aloud when done, else summarize `new_updates`.",
+     "parameters": {"type": "object", "properties": {"job_id": {"type": "string", "description": "e.g. 'job-2' (optional; default = latest job)"}}, "required": []}},
+    {"type": "function", "name": "stop_claude",
+     "description": "Cancel a running delegated Claude Code job. Use for 'stop that', 'cancel the agent', 'never mind, stop Claude'. Default = the latest job.",
+     "parameters": {"type": "object", "properties": {"job_id": {"type": "string"}}, "required": []}},
 ]
 
 
@@ -531,7 +552,34 @@ async def main():
             pass
 
 
+def _detect_key():
+    """Print the name + scan code of every key you press, so you can confirm what
+    your mouse button is bound to. Hold the button, read the value, then run with
+    --hotkey <name-or-scancode>. Ctrl-C to quit."""
+    try:
+        import keyboard
+    except Exception:
+        sys.exit("needs the `keyboard` package: pip install keyboard")
+    print("Press/hold the key (or the mouse button bound to it). Ctrl-C to quit.\n"
+          "Use the printed name (preferred) or scan_code as --hotkey <value>.\n")
+    seen = set()
+
+    def show(e):
+        if e.event_type == "down" and (e.name, e.scan_code) not in seen:
+            seen.add((e.name, e.scan_code))
+            print(f"  name={e.name!r}   scan_code={e.scan_code}")
+
+    keyboard.hook(show)
+    keyboard.wait()
+
+
 if __name__ == "__main__":
+    if "--detect-key" in sys.argv:
+        try:
+            _detect_key()
+        except KeyboardInterrupt:
+            print("\nbye.")
+        sys.exit(0)
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
