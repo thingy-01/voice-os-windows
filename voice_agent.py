@@ -122,11 +122,14 @@ INSTRUCTIONS = (
     "- GET AN UPDATE on a delegated job: 'how's it going', 'is it done', 'what did "
     "Claude do', 'any update' -> check_claude (no id = latest job). 'stop that' / "
     "'cancel the agent' -> stop_claude.\n"
-    "- CHECK A CLOUD JOB / GITHUB: a job the user started elsewhere (e.g. the phone "
-    "app) that pushes code to a repo — 'how's the <project> update going', 'check the "
-    "cloud job', 'is the PR done', 'what's the status of <owner/repo>' -> github_status "
-    "(read its `summary` aloud). check_claude is ONLY for jobs started here by voice; "
-    "for anything pushed to GitHub from the cloud, use github_status.\n"
+    "- RECENT WORK / CLOUD JOB / GITHUB: check_claude is ONLY for jobs started here "
+    "by voice; for anything pushed to GitHub (incl. cloud jobs from the phone app) "
+    "use github_status. 'what have I been working on', 'catch me up', 'any recent "
+    "activity' -> github_status with NO repo (it auto-discovers your recent repos). "
+    "'how's the <project> update going', 'is the PR done', 'status of <owner/repo>' "
+    "-> github_status with that repo. 'have Claude review my recent work', 'what "
+    "should I work on next', 'catch me up and tell me what to do next' -> "
+    "review_with_claude, then check_claude a few seconds later to read its briefing.\n"
     "- music in CIDER (the user says 'Cider', or 'next/pause/play X in Cider'): cider_control. "
     "Plain 'play music' with no app named = play_music (Spotify).\n"
     "- play music: play_music. control Premiere: premiere_control. read the screen: "
@@ -202,11 +205,15 @@ TOOLS = [
      "description": "Cancel a running delegated Claude Code job. Use for 'stop that', 'cancel the agent', 'never mind, stop Claude'. Default = the latest job.",
      "parameters": {"type": "object", "properties": {"job_id": {"type": "string"}}, "required": []}},
     {"type": "function", "name": "github_status",
-     "description": "Check what's landed on a GitHub repo — latest commit, open PRs, CI state. Use to check a CLOUD Claude Code job that pushes to a repo (e.g. one the user started from the phone app): 'how's the <project> update going', 'check the cloud job', 'is the PR done', 'what's the status of <owner/repo>'. Read the `summary` aloud. Leave repo empty to use the default (VOICEOS_GITHUB_REPO); pass repo as 'owner/name' if the user names one, or pr for a specific pull request.",
+     "description": "Check GitHub activity and read the `summary` aloud. With NO repo it AUTO-DISCOVERS the user's most recently active repos and summarizes them — use for 'what have I been working on', 'catch me up', 'any recent activity' (nothing hardcoded). With a repo it checks that one — use for 'how's the <project> update going', 'is the PR done', 'status of <owner/repo>', including a CLOUD Claude Code job that pushes to a repo. Pass repo as 'owner/name' only if the user names one; pr for a specific pull request.",
      "parameters": {"type": "object", "properties": {
-         "repo": {"type": "string", "description": "owner/name (optional; default VOICEOS_GITHUB_REPO)"},
+         "repo": {"type": "string", "description": "owner/name (optional; omit to auto-discover recent repos)"},
          "pr": {"type": "string", "description": "a pull request number to focus (optional)"},
          "branch": {"type": "string", "description": "a branch to read the tip of (optional)"}}, "required": []}},
+    {"type": "function", "name": "review_with_claude",
+     "description": "Deep review: auto-discover the user's recent GitHub work, then have a background Claude Code agent reason over it and give a spoken briefing plus the best next step per project. Use for 'have Claude review what I've been working on', 'what should I work on next', 'catch me up and tell me what to do next'. Returns a job id — then call check_claude (after a few seconds) to read Claude's summary aloud. Use github_status (no repo) instead for a quick factual overview without the deeper reasoning.",
+     "parameters": {"type": "object", "properties": {
+         "focus": {"type": "string", "description": "optional: a project/area to focus on"}}, "required": []}},
 ]
 
 

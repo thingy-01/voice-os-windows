@@ -105,11 +105,16 @@ def _ci_for_ref(repo: str, ref: str) -> str:
 def repo_status(repo: str = "", pr: str = "", branch: str = "") -> dict:
     """Summarize recent GitHub activity on `repo` (default VOICEOS_GITHUB_REPO):
     latest commit, open PRs, and CI state. Pass `pr` to focus one pull request,
-    or `branch` to read a specific branch's tip."""
+    or `branch` to read a specific branch's tip. With NO repo (and none in env),
+    auto-discovers your most recently active repos instead of erroring."""
     repo = (repo or os.environ.get("VOICEOS_GITHUB_REPO") or "").strip().strip("/")
-    if not repo or "/" not in repo:
+    if not repo:
+        if pr or branch:
+            return {"status": "error", "error": "which repo? say it as 'owner/name'"}
+        return recent_work()  # nothing specified -> discover recent work
+    if "/" not in repo:
         return {"status": "error",
-                "error": "no repo — say a repo like 'owner/name' or set VOICEOS_GITHUB_REPO"}
+                "error": "repo should look like 'owner/name'"}
 
     if pr:
         pr = str(pr).lstrip("#").strip()
@@ -171,8 +176,59 @@ def repo_status(repo: str = "", pr: str = "", branch: str = "") -> dict:
             "ci": ci, "open_prs": open_prs, "summary": summary}
 
 
+def recent_work(limit: int = 4) -> dict:
+    """Discover your MOST RECENTLY ACTIVE repos (nothing hardcoded) and summarize
+    each: latest commit, when, and CI state. Needs GITHUB_TOKEN so it knows which
+    repos are yours. This is the cheap discovery layer — for a deep, reasoned
+    briefing + next steps, feed it to Claude (see actions.review_with_claude)."""
+    if not (os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")):
+        return {"status": "error",
+                "error": "set GITHUB_TOKEN in .env so I can find your recent repos"}
+    try:
+        limit = max(1, min(int(limit), 10))
+    except (TypeError, ValueError):
+        limit = 4
+    repos = _api(f"/user/repos?sort=pushed&direction=desc&per_page={limit}"
+                 "&affiliation=owner,collaborator,organization_member")
+    if isinstance(repos, dict) and "_error" in repos:
+        return {"status": "error", "error": repos["_error"]}
+    if not isinstance(repos, list) or not repos:
+        return {"status": "ok", "repos": [], "summary": "No recent repositories found."}
+
+    out = []
+    for r in repos:
+        full = r.get("full_name", "")
+        commits = _api(f"/repos/{full}/commits?per_page=1")
+        msg = when = sha = ""
+        if isinstance(commits, list) and commits:
+            sha = commits[0].get("sha", "")
+            c = commits[0].get("commit", {})
+            msg = (c.get("message") or "").splitlines()[0]
+            when = _rel_time((c.get("author") or {}).get("date", ""))
+        out.append({
+            "repo": full,
+            "pushed": _rel_time(r.get("pushed_at", "")),
+            "latest_commit": msg,
+            "when": when,
+            "ci": _ci_for_ref(full, sha) if sha else "none",
+            "open_issues_prs": r.get("open_issues_count", 0),
+        })
+
+    parts = []
+    for r in out:
+        if r["latest_commit"]:
+            parts.append(f"{r['repo']}: \"{r['latest_commit']}\" {r['when']}, CI {r['ci']}")
+        else:
+            parts.append(f"{r['repo']}: pushed {r['pushed']}")
+    return {"status": "ok", "repos": out,
+            "summary": "Your recent work — " + "; ".join(parts) + "."}
+
+
 if __name__ == "__main__":
     args = sys.argv[1:]
-    repo = args[0] if args else ""
-    pr = args[1] if len(args) > 1 else ""
-    print(json.dumps(repo_status(repo, pr), indent=2))
+    if args and args[0] in ("recent", "--recent", "me"):
+        print(json.dumps(recent_work(), indent=2))
+    else:
+        repo = args[0] if args else ""
+        pr = args[1] if len(args) > 1 else ""
+        print(json.dumps(repo_status(repo, pr), indent=2))

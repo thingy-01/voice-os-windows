@@ -59,7 +59,7 @@ Pick a specific mic: `set VOICEOS_MIC=Scarlett` then `run.bat`.
 `open_app` · `open_thing` · `web_search` · `click_link` · `take_note` · `play_music` ·
 `run_terminal` · `read_screen_aloud` · `start_obs_recording` · `stop_obs_recording` ·
 `obs_scene` · `premiere_control` · `ask_claude` · `claude_chat` · `cider_control` ·
-`delegate_to_claude` · `check_claude` · `stop_claude` · `github_status`
+`delegate_to_claude` · `check_claude` · `stop_claude` · `github_status` · `review_with_claude`
 
 `claude_chat` sends a request to Claude via the Anthropic API and reads the reply
 back aloud (set `ANTHROPIC_API_KEY` in `.env`); it keeps short conversation context
@@ -97,24 +97,34 @@ python agent_bridge.py wait
 python test_agent_bridge.py
 ```
 
-#### Checking a *cloud* job (started elsewhere) — `github_status`
+#### Recent work & *cloud* jobs — `github_status` / `review_with_claude`
 
 `delegate_to_claude`/`check_claude` only see jobs **this PC** started by voice. A
 job you fire off **in the cloud** — e.g. from the Claude phone app, running in a
 cloud container that pushes to a repo — is invisible to them, but everything it
-does lands on **GitHub**. `github_status` reads that back: *"how's the Jurytics
-update going?"* → latest commit, open PRs, and CI state, spoken aloud.
+does lands on **GitHub**. Two layers read that back, with **nothing hardcoded**:
 
-Set a default repo (and a token for private repos) in `.env`:
+- **`github_status` (cheap, instant).** With *no repo* it auto-discovers your most
+  recently active repos and summarizes them — *"what have I been working on?"*,
+  *"catch me up."* With a repo it checks that one — *"how's the Jurytics update
+  going?"*, *"is the PR done?"* — latest commit, open PRs, CI, spoken aloud.
+- **`review_with_claude` (deep).** Auto-discovers the same recent work, then hands
+  it to a background Claude Code agent that reasons over it and gives a briefing
+  **plus the best next step per project** — *"have Claude review what I've been
+  working on and tell me what's next."* Then ask *"what did Claude say?"*
+  (`check_claude`), and direct the next task with `delegate_to_claude`.
+
+All it needs is a token (the repo isn't hardcoded — discovery finds it):
 
 ```ini
-VOICEOS_GITHUB_REPO=owner/name
-GITHUB_TOKEN=ghp_...      # Settings → Developer settings → Tokens (repo scope)
+GITHUB_TOKEN=ghp_...        # Settings → Developer settings → Tokens (repo scope)
+# VOICEOS_GITHUB_REPO=owner/name   # optional default for "how's it going" with no name
 ```
 
 ```bat
-python github_status.py owner/name        REM latest commit + open PRs + CI
-python github_status.py owner/name 42      REM focus pull request #42
+python github_status.py recent          REM auto-discover your recent repos
+python github_status.py owner/name       REM a specific repo (latest commit + PRs + CI)
+python github_status.py owner/name 42    REM focus pull request #42
 ```
 
 Every tool is a small function in `actions.py` and is **runnable standalone** (no

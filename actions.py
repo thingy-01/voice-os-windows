@@ -862,12 +862,47 @@ def stop_claude(job_id: str = "") -> dict:
 
 
 def github_status(repo: str = "", pr: str = "", branch: str = "") -> dict:
-    """Check what's landed on a GitHub repo — latest commit, open PRs, CI state.
-    Use for checking a CLOUD Claude Code job (e.g. one started from the phone app
-    that pushes to a repo): 'how's the <project> update going', 'check the cloud
-    job', 'is the PR done', 'what's the status of <owner/repo>'. `repo` defaults to
-    VOICEOS_GITHUB_REPO; set GITHUB_TOKEN in .env for private repos."""
+    """Check GitHub. With NO repo it auto-discovers your most recently active
+    repos and summarizes them ('what have I been working on', 'catch me up') —
+    nothing hardcoded. With a repo it checks that one ('how's the <project> update
+    going', 'is the PR done', 'status of <owner/repo>') — handy for a CLOUD Claude
+    Code job that pushes to a repo. Needs GITHUB_TOKEN (private repos / discovery)."""
     return ghstatus.repo_status(repo, pr, branch)
+
+
+def review_with_claude(focus: str = "") -> dict:
+    """The deep layer: auto-discover your recent GitHub work, then hand it to a
+    background Claude Code agent that reasons over it and gives a spoken briefing
+    + the most useful next step per project. Use for 'have Claude review what I've
+    been working on', 'what should I work on next', 'catch me up and tell me what's
+    next'. Returns a job id; the model should then call check_claude for the
+    result. Pass `focus` to steer it (e.g. a project name or area)."""
+    data = ghstatus.recent_work()
+    repos = data.get("repos") or []
+    if repos:
+        lines = "\n".join(
+            f"- {r['repo']}: latest \"{r.get('latest_commit', '')}\" {r.get('when', '')}, "
+            f"CI {r.get('ci', '')}, {r.get('open_issues_prs', 0)} open issues/PRs"
+            for r in repos)
+        context = "Recent GitHub activity (most recent first):\n" + lines
+    else:
+        context = ("GitHub discovery returned nothing usable: "
+                   + (data.get("error") or data.get("summary") or "no data") + ".")
+
+    focus_line = f"\nFocus especially on: {focus}." if (focus or "").strip() else ""
+    instruction = (
+        "You are giving me a brief SPOKEN status update. Do NOT modify files or run "
+        "long commands — just analyze the information below and report.\n\n"
+        + context + focus_line +
+        "\n\nIn 3-4 short, conversational sentences (for text-to-speech): "
+        "(1) summarize what's been happening across these projects, and (2) for the "
+        "most active one, state the single most useful next step I could take.")
+    job = agent_bridge.start_job(instruction)
+    if job.get("status") == "ok":
+        job["repos_found"] = [r["repo"] for r in repos]
+        job["message"] = ("Pulling your recent work and having Claude review it — "
+                          "ask me for the summary in a few seconds.")
+    return job
 
 
 # ---------------------------------------------------------------------------
@@ -893,6 +928,7 @@ TOOLS = {
     "check_claude": check_claude,
     "stop_claude": stop_claude,
     "github_status": github_status,
+    "review_with_claude": review_with_claude,
 }
 
 
