@@ -126,8 +126,10 @@ INSTRUCTIONS = (
     "by voice; for anything pushed to GitHub (incl. cloud jobs from the phone app) "
     "use github_status. 'what have I been working on', 'catch me up', 'any recent "
     "activity' -> github_status with NO repo (it auto-discovers your recent repos). "
-    "'how's the <project> update going', 'is the PR done', 'status of <owner/repo>' "
-    "-> github_status with that repo. 'have Claude review my recent work', 'what "
+    "'how's the <project> update going', 'is the PR done', 'status of <name>' "
+    "-> github_status with whatever NAME the user said (bare name is fine — it's "
+    "fuzzy-matched; never demand 'owner/name'; if it returns needs_disambiguation, "
+    "ask which one and call again). 'have Claude review my recent work', 'what "
     "should I work on next', 'catch me up and tell me what to do next' -> "
     "review_with_claude, then check_claude a few seconds later to read its briefing.\n"
     "- ACT ON CLAUDE'S SUGGESTION: after you've relayed a Claude review or proposed "
@@ -215,9 +217,9 @@ TOOLS = [
          "instruction": {"type": "string", "description": "what to do next, e.g. 'go ahead and do the first next-step you recommended'"},
          "job_id": {"type": "string", "description": "which job to continue (optional; default = latest)"}}, "required": []}},
     {"type": "function", "name": "github_status",
-     "description": "Check GitHub activity and read the `summary` aloud. With NO repo it AUTO-DISCOVERS the user's most recently active repos and summarizes them — use for 'what have I been working on', 'catch me up', 'any recent activity' (nothing hardcoded). With a repo it checks that one — use for 'how's the <project> update going', 'is the PR done', 'status of <owner/repo>', including a CLOUD Claude Code job that pushes to a repo. Pass repo as 'owner/name' only if the user names one; pr for a specific pull request.",
+     "description": "Check GitHub activity and read the `summary` aloud. With NO repo it AUTO-DISCOVERS the user's most recently active repos and summarizes them — use for 'what have I been working on', 'catch me up', 'any recent activity' (nothing hardcoded). With a repo it checks that one — use for 'how's the <project> update going', 'is the PR done', 'status of <repo>', including a CLOUD Claude Code job that pushes to a repo. IMPORTANT: just pass the repo NAME the user said (e.g. 'juritix') — don't insist on 'owner/name'; it's fuzzy-matched against their real repos. If the result status is 'needs_disambiguation', read the `summary` to ask which one, then call again with the chosen name.",
      "parameters": {"type": "object", "properties": {
-         "repo": {"type": "string", "description": "owner/name (optional; omit to auto-discover recent repos)"},
+         "repo": {"type": "string", "description": "the repo name as the user said it (a bare name is fine; owner/name also works). Omit to auto-discover recent repos."},
          "pr": {"type": "string", "description": "a pull request number to focus (optional)"},
          "branch": {"type": "string", "description": "a branch to read the tip of (optional)"}}, "required": []}},
     {"type": "function", "name": "review_with_claude",

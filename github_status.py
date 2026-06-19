@@ -20,8 +20,10 @@ Standalone:
 """
 from __future__ import annotations
 
+import difflib
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -102,19 +104,89 @@ def _ci_for_ref(repo: str, ref: str) -> str:
     return "mixed"
 
 
+def _have_token() -> bool:
+    return bool(os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN"))
+
+
+_REPO_CACHE: list | None = None
+
+
+def _all_repos() -> list:
+    """The user's repos (owner/collaborator/org), newest-pushed first. Cached for
+    the process so resolving several spoken names doesn't re-hit the API."""
+    global _REPO_CACHE
+    if _REPO_CACHE is None:
+        repos = _api("/user/repos?sort=pushed&direction=desc&per_page=100"
+                     "&affiliation=owner,collaborator,organization_member")
+        _REPO_CACHE = repos if isinstance(repos, list) else []
+    return _REPO_CACHE
+
+
+def _norm(s: str) -> str:
+    """Lowercase, drop everything but a-z0-9 — so 'Juri-Tix', 'juri tix' and
+    'JURITIX' all compare equal, smoothing over how voice transcribes a name."""
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def _resolve_repo(spoken: str) -> tuple[str, list]:
+    """Map a bare or misheard spoken repo name to a real 'owner/name' from the
+    user's repos. Returns (full_name, candidates):
+      - (full_name, [])     a confident single match -> use it
+      - ("", [a, b, ...])   ambiguous/weak -> let the caller ask which one
+      - ("", [])            no token or nothing close."""
+    spoken = (spoken or "").strip().strip("/")
+    nt = _norm(spoken.split("/")[-1])  # match on the name part even if an owner was guessed
+    repos = _all_repos()
+    if not nt or not repos:
+        return "", []
+    scored = []
+    for r in repos:
+        full = r.get("full_name", "")
+        name = _norm(r.get("name", "") or full.split("/")[-1])
+        if not name:
+            continue
+        if _norm(full) == _norm(spoken) or name == nt:
+            return full, []  # exact hit
+        score = difflib.SequenceMatcher(None, nt, name).ratio()
+        if nt in name or name in nt:           # spoken is a fragment of the real name (or vice-versa)
+            score = max(score, 0.85)
+        scored.append((score, full))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = [full for s, full in scored if s >= 0.5][:4]
+    # One clear winner: best is strong AND well clear of the runner-up.
+    if top and scored[0][0] >= 0.8 and (len(scored) < 2 or scored[0][0] - scored[1][0] >= 0.15):
+        return top[0], top
+    return "", top
+
+
 def repo_status(repo: str = "", pr: str = "", branch: str = "") -> dict:
     """Summarize recent GitHub activity on `repo` (default VOICEOS_GITHUB_REPO):
     latest commit, open PRs, and CI state. Pass `pr` to focus one pull request,
     or `branch` to read a specific branch's tip. With NO repo (and none in env),
-    auto-discovers your most recently active repos instead of erroring."""
+    auto-discovers your most recently active repos instead of erroring. A bare or
+    roughly-spelled name (no owner) is fuzzy-matched against your real repos."""
     repo = (repo or os.environ.get("VOICEOS_GITHUB_REPO") or "").strip().strip("/")
     if not repo:
         if pr or branch:
-            return {"status": "error", "error": "which repo? say it as 'owner/name'"}
+            return {"status": "error", "error": "which repo? just say its name"}
         return recent_work()  # nothing specified -> discover recent work
     if "/" not in repo:
-        return {"status": "error",
-                "error": "repo should look like 'owner/name'"}
+        # Only a name was heard (the common voice case). Resolve it to a real repo
+        # instead of forcing the user to dictate 'owner/name'.
+        if not _have_token():
+            return {"status": "error",
+                    "error": "set GITHUB_TOKEN in .env so I can find that repo by name, "
+                             "or say it as 'owner/name'"}
+        resolved, candidates = _resolve_repo(repo)
+        if resolved:
+            repo = resolved
+        elif candidates:
+            return {"status": "needs_disambiguation", "candidates": candidates,
+                    "summary": f"I couldn't pin down '{repo}'. Did you mean "
+                               + " or ".join(candidates) + "?"}
+        else:
+            return {"status": "error",
+                    "error": f"I don't see a repo like '{repo}' among yours."}
 
     if pr:
         pr = str(pr).lstrip("#").strip()
@@ -138,6 +210,12 @@ def repo_status(repo: str = "", pr: str = "", branch: str = "") -> dict:
     ref = branch.strip() if branch else ""
     commits = _api(f"/repos/{repo}/commits?per_page=1" + (f"&sha={ref}" if ref else ""))
     if isinstance(commits, dict) and "_error" in commits:
+        # Owner may have been misheard (right name, wrong owner). If the name part
+        # resolves to a real repo, retry there once before giving up.
+        if "not found" in commits["_error"] and _have_token():
+            resolved, _ = _resolve_repo(repo.split("/")[-1])
+            if resolved and resolved != repo:
+                return repo_status(resolved, pr, branch)
         return {"status": "error", "error": commits["_error"]}
     latest = commits[0] if isinstance(commits, list) and commits else None
     commit_info = {}

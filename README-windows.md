@@ -107,7 +107,9 @@ does lands on **GitHub**. Two layers read that back, with **nothing hardcoded**:
 - **`github_status` (cheap, instant).** With *no repo* it auto-discovers your most
   recently active repos and summarizes them — *"what have I been working on?"*,
   *"catch me up."* With a repo it checks that one — *"how's the Jurytics update
-  going?"*, *"is the PR done?"* — latest commit, open PRs, CI, spoken aloud.
+  going?"*, *"is the PR done?"* — latest commit, open PRs, CI, spoken aloud. You
+  only say the **name** (no `owner/`); it's fuzzy-matched against your real repos,
+  so a misheard *"juridics"* still finds `…/juritix` (and asks if it's unsure).
 - **`review_with_claude` (deep).** Auto-discovers the same recent work, then hands
   it to a background Claude Code agent that reasons over it and gives a briefing
   **plus the best next step per project** — *"have Claude review what I've been
