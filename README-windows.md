@@ -59,7 +59,7 @@ Pick a specific mic: `set VOICEOS_MIC=Scarlett` then `run.bat`.
 `open_app` · `open_thing` · `web_search` · `click_link` · `take_note` · `play_music` ·
 `run_terminal` · `read_screen_aloud` · `start_obs_recording` · `stop_obs_recording` ·
 `obs_scene` · `premiere_control` · `ask_claude` · `claude_chat` · `cider_control` ·
-`delegate_to_claude` · `check_claude` · `stop_claude`
+`delegate_to_claude` · `check_claude` · `stop_claude` · `github_status`
 
 `claude_chat` sends a request to Claude via the Anthropic API and reads the reply
 back aloud (set `ANTHROPIC_API_KEY` in `.env`); it keeps short conversation context
@@ -95,6 +95,26 @@ point `CWD` at a project you trust). Try it without a mic or OpenAI key:
 python agent_bridge.py start "create hello.txt with the word hi"
 python agent_bridge.py wait
 python test_agent_bridge.py
+```
+
+#### Checking a *cloud* job (started elsewhere) — `github_status`
+
+`delegate_to_claude`/`check_claude` only see jobs **this PC** started by voice. A
+job you fire off **in the cloud** — e.g. from the Claude phone app, running in a
+cloud container that pushes to a repo — is invisible to them, but everything it
+does lands on **GitHub**. `github_status` reads that back: *"how's the Jurytics
+update going?"* → latest commit, open PRs, and CI state, spoken aloud.
+
+Set a default repo (and a token for private repos) in `.env`:
+
+```ini
+VOICEOS_GITHUB_REPO=owner/name
+GITHUB_TOKEN=ghp_...      # Settings → Developer settings → Tokens (repo scope)
+```
+
+```bat
+python github_status.py owner/name        REM latest commit + open PRs + CI
+python github_status.py owner/name 42      REM focus pull request #42
 ```
 
 Every tool is a small function in `actions.py` and is **runnable standalone** (no

@@ -39,6 +39,7 @@ from urllib.parse import quote
 
 import agent_bridge
 import desktop
+import github_status as ghstatus
 
 LOG_DIR = tempfile.gettempdir()
 CLAUDE_LOG = os.path.join(LOG_DIR, "voiceos-claude.log")
@@ -860,6 +861,15 @@ def stop_claude(job_id: str = "") -> dict:
     return agent_bridge.stop_job(job_id)
 
 
+def github_status(repo: str = "", pr: str = "", branch: str = "") -> dict:
+    """Check what's landed on a GitHub repo — latest commit, open PRs, CI state.
+    Use for checking a CLOUD Claude Code job (e.g. one started from the phone app
+    that pushes to a repo): 'how's the <project> update going', 'check the cloud
+    job', 'is the PR done', 'what's the status of <owner/repo>'. `repo` defaults to
+    VOICEOS_GITHUB_REPO; set GITHUB_TOKEN in .env for private repos."""
+    return ghstatus.repo_status(repo, pr, branch)
+
+
 # ---------------------------------------------------------------------------
 # tool registry (same names/order as the macOS original)
 # ---------------------------------------------------------------------------
@@ -882,6 +892,7 @@ TOOLS = {
     "delegate_to_claude": delegate_to_claude,
     "check_claude": check_claude,
     "stop_claude": stop_claude,
+    "github_status": github_status,
 }
 
 
