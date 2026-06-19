@@ -143,6 +143,10 @@ INSTRUCTIONS = (
     "that', 'okay do it', 'make it happen', 'continue' -> continue_claude (it resumes "
     "Claude's SAME session so it acts on its own plan). Use delegate_to_claude only "
     "for a brand-new task unrelated to what Claude was just doing.\n"
+    "- REBOOT / UPDATE YOURSELF: 'reboot', 'restart yourself', 'update and restart', "
+    "'pull the latest and reboot' -> reboot_voiceos. Give a SHORT spoken confirmation "
+    "(e.g. 'Pulling the latest and rebooting now') — the restart fires right after you "
+    "speak it, so don't promise to do anything else in the same breath.\n"
     "- music in CIDER (the user says 'Cider', or 'next/pause/play X in Cider'): cider_control. "
     "Plain 'play music' with no app named = play_music (Spotify).\n"
     "- play music: play_music. control Premiere: premiere_control. read the screen: "
@@ -244,6 +248,10 @@ TOOLS = [
      "parameters": {"type": "object", "properties": {
          "which": {"type": "string", "description": "a ticket number ('12') or part of its title ('the login bug')"},
          "board": {"type": "string", "description": "which board to look on (optional)"}}, "required": []}},
+    {"type": "function", "name": "reboot_voiceos",
+     "description": "Update and restart Voice OS itself: git-pull the latest code, then restart the running service so the new code takes effect. Use for 'reboot', 'restart yourself', 'update and restart', 'pull the latest and reboot'. Briefly confirm out loud (e.g. 'Rebooting now') — the restart happens right after you speak. Set pull=false only if the user says restart WITHOUT updating.",
+     "parameters": {"type": "object", "properties": {
+         "pull": {"type": "boolean", "description": "pull latest code before restarting (default true; false = just restart)"}}, "required": []}},
     {"type": "function", "name": "review_with_claude",
      "description": "Deep review: auto-discover the user's recent GitHub work, then have a background Claude Code agent reason over it and give a spoken briefing plus the best next step per project. Use for 'have Claude review what I've been working on', 'what should I work on next', 'catch me up and tell me what to do next'. Returns a job id — then call check_claude (after a few seconds) to read Claude's summary aloud. Use github_status (no repo) instead for a quick factual overview without the deeper reasoning.",
      "parameters": {"type": "object", "properties": {
@@ -299,6 +307,9 @@ _audio_frames = 0  # mic frames forwarded since the current hold started (anti e
 # Each mic frame is BLOCK samples = 100ms; the Realtime API rejects a commit with
 # <100ms buffered, so require a small floor before we commit on key release.
 MIN_AUDIO_FRAMES = 2
+_pending_exit = None  # set to RESTART_EXIT_CODE by reboot_voiceos; fires after the
+# confirmation finishes playing. run.bat / run.ps1 relaunch on this exact code.
+RESTART_EXIT_CODE = 42
 
 
 def _open_mic():
@@ -473,8 +484,21 @@ async def hotkey_console(ws):
             print("⏳ thinking…", flush=True)
 
 
+async def _drain_and_restart(code):
+    """Let the spoken confirmation finish playing, then exit with `code` so the
+    launcher relaunches us. os._exit so threads/streams don't block the restart."""
+    for _ in range(120):  # wait up to ~12s for playback to drain
+        if play_q.empty() and not _play_buf:
+            break
+        await asyncio.sleep(0.1)
+    await asyncio.sleep(0.4)  # small tail so the last words aren't clipped
+    print("\n♻  restarting Voice OS…", flush=True)
+    sys.stdout.flush()
+    os._exit(code)
+
+
 async def receive(ws):
-    global _speaking, _listening
+    global _speaking, _listening, _pending_exit
     async for raw in ws:
         ev = json.loads(raw)
         t = ev.get("type", "")
@@ -496,6 +520,8 @@ async def receive(ws):
             _speaking = False
             if PTT and t == "response.done":
                 print("\n— press ENTER to talk —", flush=True)
+            if _pending_exit is not None and t == "response.done":
+                await _drain_and_restart(_pending_exit)
         elif t == "conversation.item.input_audio_transcription.completed":
             heard = (ev.get("transcript") or "").strip()
             if WAKE_MODE:
@@ -532,6 +558,8 @@ async def receive(ws):
             result = await dispatch_tool(name, args)
             status = result.get("status", "?")
             print(f"✓  {status}" if status == "ok" else f"✗  {status}", flush=True)
+            if isinstance(result, dict) and result.get("_restart"):
+                _pending_exit = RESTART_EXIT_CODE  # restart once the reply is spoken
             await ws.send(json.dumps({"type": "conversation.item.create",
                                       "item": {"type": "function_call_output",
                                                "call_id": call_id,

@@ -119,6 +119,12 @@ does lands on **GitHub**. Two layers read that back, with **nothing hardcoded**:
   *"tell me about the login ticket"* / *"ticket 12"* reads one in depth (status,
   assignees, description, latest comments). Board name is fuzzy-matched too; set a
   default with `VOICEOS_GITHUB_PROJECT`. Needs the token's `read:project` scope.
+- **`reboot_voiceos`.** *"Reboot"*, *"update and restart yourself"* → `git pull`
+  the latest code and restart the service so it takes effect. It speaks the
+  confirmation first, *then* restarts after the words finish; a failed pull is
+  reported and aborts the restart (no rebooting into a broken state). The relaunch
+  is driven by `run.bat` / `run.ps1` (they loop on exit code 42). Say *"restart
+  without pulling"* to just bounce it.
 - **`review_with_claude` (deep).** Auto-discovers the same recent work, then hands
   it to a background Claude Code agent that reasons over it and gives a briefing
   **plus the best next step per project** — *"have Claude review what I've been

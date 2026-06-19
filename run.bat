@@ -27,7 +27,9 @@ if not exist ".venv\.installed" (
     echo done > ".venv\.installed"
 )
 
-REM --- load .env into the environment ---
+REM --- run loop: exit code 42 means "reboot" (voice command) -> relaunch.
+REM     .env is reloaded each launch so a reboot also picks up edits to it.
+:runloop
 if exist ".env" (
     for /f "usebackq tokens=1,* delims==" %%a in (".env") do (
         set "line=%%a"
@@ -43,4 +45,9 @@ if "%OPENAI_API_KEY%"=="" (
 
 REM --- run (default mode = hold-to-talk on F13; bind it to a mouse button) ---
 python voice_agent.py %*
+if "%ERRORLEVEL%"=="42" (
+    echo.
+    echo  =========  Rebooting Voice OS  =========
+    goto runloop
+)
 endlocal

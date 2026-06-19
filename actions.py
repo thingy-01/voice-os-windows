@@ -29,6 +29,7 @@ import difflib
 import functools
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -976,6 +977,36 @@ def review_with_claude(focus: str = "") -> dict:
     return job
 
 
+def reboot_voiceos(pull: bool = True) -> dict:
+    """Update & restart Voice OS by voice: `git pull` the latest code, then restart
+    the running service so it takes effect. Use for 'reboot', 'restart yourself',
+    'update and restart', 'pull the latest and reboot'. Returns a `_restart` flag
+    the agent acts on AFTER speaking this confirmation; the launcher (run.bat /
+    run.ps1) relaunches it. Set pull=False to restart without updating."""
+    summary_pull = "Restarting without pulling"
+    if pull:
+        repo_dir = os.path.dirname(os.path.abspath(__file__))
+        if not shutil.which("git"):
+            return {"status": "error",
+                    "error": "git isn't on PATH, so I can't pull updates — "
+                             "say 'restart without pulling' to just reboot"}
+        try:
+            r = subprocess.run(["git", "pull", "--ff-only"], cwd=repo_dir,
+                               capture_output=True, text=True, timeout=120)
+        except Exception as e:  # noqa: BLE001
+            return {"status": "error", "error": f"git pull failed: {e}"}
+        if r.returncode != 0:
+            return {"status": "error",
+                    "error": "couldn't pull the latest — "
+                             + (r.stderr or r.stdout or "git error").strip()[:200]
+                             + ". I won't restart until that's resolved."}
+        out = (r.stdout or "").strip().lower()
+        summary_pull = ("Already up to date" if "up to date" in out
+                        else "Pulled the latest changes")
+    return {"status": "ok", "_restart": True,
+            "summary": f"{summary_pull}. Restarting now — back in a few seconds."}
+
+
 # ---------------------------------------------------------------------------
 # tool registry (same names/order as the macOS original)
 # ---------------------------------------------------------------------------
@@ -1004,6 +1035,7 @@ TOOLS = {
     "project_board": project_board,
     "ticket_details": ticket_details,
     "review_with_claude": review_with_claude,
+    "reboot_voiceos": reboot_voiceos,
 }
 
 
